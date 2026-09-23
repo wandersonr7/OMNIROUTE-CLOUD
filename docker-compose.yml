@@ -1,0 +1,10 @@
+services:
+  omniroute:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      OMNIROUTE_DEFAULT_PROVIDER: mock
+      OMNIROUTE_RATE_LIMIT_PER_MINUTE: 30
+      LOG_LEVEL: INFO
+    restart: unless-stopped
