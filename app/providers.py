@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -7,8 +8,20 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from .circuit_breaker import CircuitBreaker
 from .config import settings
 from .models import ChatRequest
+
+
+logger = logging.getLogger(__name__)
+
+
+circuit_breaker = CircuitBreaker(
+    failure_threshold=settings.circuit_breaker_failure_threshold,
+    recovery_timeout_seconds=(
+        settings.circuit_breaker_recovery_timeout_seconds
+    ),
+)
 
 
 class Provider(ABC):
@@ -26,7 +39,10 @@ def openai_response(model: str, content: str) -> dict[str, Any]:
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": content},
+                "message": {
+                    "role": "assistant",
+                    "content": content,
+                },
                 "finish_reason": "stop",
             }
         ],
@@ -43,7 +59,21 @@ async def post_with_retry(
     *,
     headers: dict[str, str],
     payload: dict[str, Any],
+    provider_name: str = "unknown",
 ) -> httpx.Response:
+    if circuit_breaker.is_open(provider_name):
+        logger.warning(
+            "Provider circuit breaker is open",
+            extra={
+                "provider": provider_name,
+            },
+        )
+
+        raise HTTPException(
+            status_code=503,
+            detail=f"Provider temporarily unavailable: {provider_name}",
+        )
+
     attempts = settings.provider_max_retries + 1
 
     for attempt in range(attempts):
@@ -63,13 +93,48 @@ async def post_with_retry(
                         settings.provider_retry_backoff_seconds
                         * (2 ** attempt)
                     )
+
+                    logger.warning(
+                        "Retrying upstream provider request",
+                        extra={
+                            "provider": provider_name,
+                            "attempt": attempt + 1,
+                            "status_code": response.status_code,
+                            "backoff_seconds": delay,
+                        },
+                    )
+
                     await asyncio.sleep(delay)
                     continue
 
+                circuit_breaker.record_failure(provider_name)
+
+                logger.error(
+                    "Upstream provider failed after retries",
+                    extra={
+                        "provider": provider_name,
+                        "attempt": attempt + 1,
+                        "status_code": response.status_code,
+                    },
+                )
+
+                return response
+
+            circuit_breaker.record_success(provider_name)
             return response
 
         except httpx.TimeoutException as exc:
             if attempt >= attempts - 1:
+                circuit_breaker.record_failure(provider_name)
+
+                logger.error(
+                    "Upstream provider timeout",
+                    extra={
+                        "provider": provider_name,
+                        "attempt": attempt + 1,
+                    },
+                )
+
                 raise HTTPException(
                     status_code=504,
                     detail="Upstream provider timeout",
@@ -77,13 +142,35 @@ async def post_with_retry(
 
         except httpx.RequestError as exc:
             if attempt >= attempts - 1:
+                circuit_breaker.record_failure(provider_name)
+
+                logger.error(
+                    "Upstream provider connection error",
+                    extra={
+                        "provider": provider_name,
+                        "attempt": attempt + 1,
+                    },
+                )
+
                 raise HTTPException(
                     status_code=502,
                     detail="Upstream provider connection error",
                 ) from exc
 
         delay = settings.provider_retry_backoff_seconds * (2 ** attempt)
+
+        logger.warning(
+            "Retrying upstream provider request after exception",
+            extra={
+                "provider": provider_name,
+                "attempt": attempt + 1,
+                "backoff_seconds": delay,
+            },
+        )
+
         await asyncio.sleep(delay)
+
+    circuit_breaker.record_failure(provider_name)
 
     raise HTTPException(
         status_code=502,
@@ -109,7 +196,10 @@ class MockProvider(Provider):
 
 
 class OpenAICompatibleProvider(Provider):
-    async def complete(self, request: ChatRequest) -> dict[str, Any]:
+    async def complete(
+        self,
+        request: ChatRequest,
+    ) -> dict[str, Any]:
         if not settings.openai_api_key:
             raise HTTPException(
                 status_code=503,
@@ -117,7 +207,9 @@ class OpenAICompatibleProvider(Provider):
             )
 
         payload = request.model_dump(exclude_none=True)
-        payload["model"] = request.model or settings.openai_default_model
+        payload["model"] = (
+            request.model or settings.openai_default_model
+        )
 
         if not payload["model"]:
             raise HTTPException(
@@ -131,19 +223,26 @@ class OpenAICompatibleProvider(Provider):
                 "Authorization": f"Bearer {settings.openai_api_key}",
             },
             payload=payload,
+            provider_name="openai",
         )
 
         if response.is_error:
             raise HTTPException(
                 status_code=502,
-                detail=f"Upstream provider error: {response.status_code}",
+                detail=(
+                    "Upstream provider error: "
+                    f"{response.status_code}"
+                ),
             )
 
         return response.json()
 
 
 class AnthropicProvider(Provider):
-    async def complete(self, request: ChatRequest) -> dict[str, Any]:
+    async def complete(
+        self,
+        request: ChatRequest,
+    ) -> dict[str, Any]:
         if not settings.anthropic_api_key:
             raise HTTPException(
                 status_code=503,
@@ -155,7 +254,9 @@ class AnthropicProvider(Provider):
         if not model:
             raise HTTPException(
                 status_code=400,
-                detail="A model is required for the Anthropic provider",
+                detail=(
+                    "A model is required for the Anthropic provider"
+                ),
             )
 
         system_parts = [
@@ -193,12 +294,16 @@ class AnthropicProvider(Provider):
                 "content-type": "application/json",
             },
             payload=payload,
+            provider_name="anthropic",
         )
 
         if response.is_error:
             raise HTTPException(
                 status_code=502,
-                detail=f"Upstream provider error: {response.status_code}",
+                detail=(
+                    "Upstream provider error: "
+                    f"{response.status_code}"
+                ),
             )
 
         data = response.json()
@@ -209,8 +314,15 @@ class AnthropicProvider(Provider):
             if block.get("type") == "text"
         )
 
-        result = openai_response(model, text)
-        result["id"] = data.get("id", result["id"])
+        result = openai_response(
+            model,
+            text,
+        )
+
+        result["id"] = data.get(
+            "id",
+            result["id"],
+        )
 
         return result
 
