@@ -8,6 +8,10 @@ class Settings:
     rate_limit_per_minute: int = int(os.getenv("OMNIROUTE_RATE_LIMIT_PER_MINUTE", "30"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO").upper()
 
+    provider_timeout_seconds: float = float(
+        os.getenv("OMNIROUTE_PROVIDER_TIMEOUT_SECONDS", "30")
+    )
+
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
     openai_default_model: str = os.getenv("OPENAI_DEFAULT_MODEL", "")

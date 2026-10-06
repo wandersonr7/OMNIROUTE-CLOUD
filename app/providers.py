@@ -51,7 +51,7 @@ class OpenAICompatibleProvider(Provider):
         payload["model"] = request.model or settings.openai_default_model
         if not payload["model"]:
             raise HTTPException(status_code=400, detail="A model is required for the OpenAI provider")
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=settings.provider_timeout_seconds) as client:
             response = await client.post(
                 f"{settings.openai_base_url}/chat/completions",
                 headers={"Authorization": f"Bearer {settings.openai_api_key}"},
@@ -86,7 +86,7 @@ class AnthropicProvider(Provider):
         if request.temperature is not None:
             payload["temperature"] = request.temperature
 
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=settings.provider_timeout_seconds) as client:
             response = await client.post(
                 f"{settings.anthropic_base_url}/v1/messages",
                 headers={
@@ -117,3 +117,5 @@ def get_provider(name: str) -> Provider:
     if provider is None:
         raise HTTPException(status_code=400, detail=f"Unknown provider: {name}")
     return provider
+
+
