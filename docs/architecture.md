@@ -1,37 +1,54 @@
-# Architecture
+# OmniRoute Cloud Architecture
 
-## Local MVP
+## Overview
 
-1. A client sends an OpenAI-compatible request.
-2. FastAPI validates the request and applies a per-client in-memory rate limit.
-3. The router selects mock, OpenAI-compatible, or Anthropic.
-4. The adapter normalizes the provider response to the OpenAI chat-completion shape.
-5. JSON logs include a request ID.
+OmniRoute Cloud is a multi-provider AI routing gateway built with FastAPI.
 
-The default path is entirely local and free:
+It provides a single API entry point that can route chat-completion requests to multiple AI providers while adding reliability controls such as:
+
+- configurable timeouts
+- retries
+- exponential backoff
+- circuit breakers
+- provider health tracking
+- automatic failover
+- structured logging
+- rate limiting
+
+The project currently supports:
+
+- Mock provider
+- OpenAI-compatible provider
+- Anthropic provider
+
+---
+
+## Current Request Flow
 
 ```text
-Client -> FastAPI -> Router -> Mock provider
-```
-
-## Planned AWS production path
-
-```text
-Client -> Application Load Balancer -> ECS Fargate -> Provider API
-                                      |-> CloudWatch Logs
-                                      |-> DynamoDB metadata
-                                      |-> Secrets Manager
-```
-
-Terraform currently creates only a reviewed foundation: ECR, ECS cluster, CloudWatch log group, and an encrypted DynamoDB table. A public service, load balancer, networking, Secrets Manager values, alarms, and deployment workflow must be added and cost-reviewed before deployment.
-
-## Production gaps
-
-- Distributed rate limiting
-- Authentication and tenant isolation
-- Retry/backoff and circuit breaking
-- Streaming responses
-- Usage metering and budgets
-- Secrets Manager integration
-- ECS service, VPC, ALB, autoscaling, alarms, and rollback
-- DynamoDB request metadata integration
+Client
+  |
+  v
+FastAPI
+  |
+  +--> Request ID middleware
+  |
+  +--> In-memory rate limiter
+  |
+  +--> Provider routing
+          |
+          +--> Provider health check
+          |
+          +--> Circuit breaker check
+          |
+          +--> Primary provider
+          |       |
+          |       +--> Timeout
+          |       +--> Retry
+          |       +--> Exponential backoff
+          |
+          +--> Failover provider
+                  |
+                  +--> OpenAI
+                  +--> Anthropic
+                  +--> Mock
