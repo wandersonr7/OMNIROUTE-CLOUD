@@ -41,25 +41,55 @@ variable "ecs_desired_count" {
 }
 
 variable "create_ecs_service" {
-  description = "Create the ECS service after networking is supplied"
+  description = "Create the ECS Fargate service"
   type        = bool
   default     = false
 }
 
+variable "create_network" {
+  description = "Create the OmniRoute VPC and public networking"
+  type        = bool
+  default     = false
+}
+
+variable "create_alb" {
+  description = "Create the Application Load Balancer"
+  type        = bool
+  default     = false
+}
+
+variable "vpc_cidr" {
+  description = "CIDR block for the OmniRoute VPC"
+  type        = string
+  default     = "10.20.0.0/16"
+}
+
+variable "public_subnet_a_cidr" {
+  description = "CIDR block for public subnet A"
+  type        = string
+  default     = "10.20.1.0/24"
+}
+
+variable "public_subnet_b_cidr" {
+  description = "CIDR block for public subnet B"
+  type        = string
+  default     = "10.20.2.0/24"
+}
+
 variable "ecs_subnet_ids" {
-  description = "Subnet IDs used by the ECS Fargate service"
+  description = "Existing subnet IDs used by ECS when create_network is false"
   type        = list(string)
   default     = []
 }
 
 variable "ecs_security_group_ids" {
-  description = "Security group IDs used by the ECS Fargate service"
+  description = "Existing security group IDs used by ECS when create_network is false"
   type        = list(string)
   default     = []
 }
 
 variable "ecs_assign_public_ip" {
-  description = "Assign a public IP to ECS tasks"
+  description = "Assign a public IP to ECS tasks when using external networking"
   type        = bool
   default     = false
 }

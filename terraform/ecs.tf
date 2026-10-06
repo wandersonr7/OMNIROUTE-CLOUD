@@ -56,6 +56,27 @@ locals {
     ? var.container_image
     : "${aws_ecr_repository.app.repository_url}:latest"
   )
+
+  ecs_subnet_ids = (
+    var.create_network
+    ? [
+      aws_subnet.public_a[0].id,
+      aws_subnet.public_b[0].id,
+    ]
+    : var.ecs_subnet_ids
+  )
+
+  ecs_security_group_ids = (
+    var.create_network
+    ? [aws_security_group.ecs[0].id]
+    : var.ecs_security_group_ids
+  )
+
+  ecs_assign_public_ip = (
+    var.create_network
+    ? true
+    : var.ecs_assign_public_ip
+  )
 }
 
 resource "aws_ecs_task_definition" "app" {
@@ -146,20 +167,34 @@ resource "aws_ecs_service" "app" {
   launch_type   = "FARGATE"
 
   network_configuration {
-    subnets          = var.ecs_subnet_ids
-    security_groups  = var.ecs_security_group_ids
-    assign_public_ip = var.ecs_assign_public_ip
+    subnets          = local.ecs_subnet_ids
+    security_groups  = local.ecs_security_group_ids
+    assign_public_ip = local.ecs_assign_public_ip
+  }
+
+  dynamic "load_balancer" {
+    for_each = var.create_alb ? [1] : []
+
+    content {
+      target_group_arn = aws_lb_target_group.app[0].arn
+      container_name   = "omniroute"
+      container_port   = var.container_port
+    }
   }
 
   lifecycle {
     precondition {
-      condition     = length(var.ecs_subnet_ids) > 0
-      error_message = "ecs_subnet_ids must contain at least one subnet when create_ecs_service is true."
+      condition     = length(local.ecs_subnet_ids) > 0
+      error_message = "ECS requires at least one subnet."
     }
 
     precondition {
-      condition     = length(var.ecs_security_group_ids) > 0
-      error_message = "ecs_security_group_ids must contain at least one security group when create_ecs_service is true."
+      condition     = length(local.ecs_security_group_ids) > 0
+      error_message = "ECS requires at least one security group."
     }
   }
+
+  depends_on = [
+    aws_lb_listener.http,
+  ]
 }

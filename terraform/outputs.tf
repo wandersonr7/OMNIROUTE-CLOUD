@@ -25,3 +25,18 @@ output "ecs_service_name" {
 output "dynamodb_table_name" {
   value = aws_dynamodb_table.requests.name
 }
+
+output "vpc_id" {
+  value = var.create_network ? aws_vpc.main[0].id : null
+}
+
+output "public_subnet_ids" {
+  value = var.create_network ? [
+    aws_subnet.public_a[0].id,
+    aws_subnet.public_b[0].id,
+  ] : []
+}
+
+output "alb_dns_name" {
+  value = var.create_alb ? aws_lb.app[0].dns_name : null
+}
