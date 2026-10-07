@@ -1,22 +1,33 @@
 # OmniRoute Cloud
 
 [![CI](https://github.com/wandersonr7/OMNIROUTE-CLOUD/actions/workflows/ci.yml/badge.svg)](https://github.com/wandersonr7/OMNIROUTE-CLOUD/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.12+-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-green)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-purple)
+![Docker](https://img.shields.io/badge/Docker-Container-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-OmniRoute Cloud is a multi-provider AI routing gateway and hands-on cloud engineering lab built with Python and FastAPI.
+**Multi-provider AI routing gateway and hands-on cloud engineering lab built with Python, FastAPI, Docker, Terraform, GitHub Actions, and AWS architecture.**
 
-It is used both as a portfolio project and as a practical environment for experimenting with backend engineering, reliability, Docker, CI/CD, Terraform, and AWS architecture.
+OmniRoute Cloud sits between an application and multiple AI providers. It handles provider selection, retries, exponential backoff, health tracking, circuit breaking, and automatic failover.
 
-## What Problem Does It Solve?
+<p align="center">
+  <img src="docs/images/architecture-preview.png" alt="OmniRoute Cloud architecture preview" width="100%">
+</p>
 
-Applications that depend directly on a single AI provider can experience problems when that provider has:
+---
 
-- outages
-- rate limits
-- timeouts
-- temporary server errors
-- configuration failures
+## Project Overview
 
-OmniRoute sits between an application and AI providers.
+A normal application may depend directly on one AI provider:
+
+```text
+Application --> AI Provider
+```
+
+If that provider becomes unavailable, the application can fail.
+
+OmniRoute introduces a reliability layer:
 
 ```text
 Application
@@ -24,36 +35,101 @@ Application
     v
 OmniRoute
     |
-    +--> OpenAI
+    +--> OpenAI-Compatible
     |
     +--> Anthropic
     |
     +--> Mock Provider
 ```
 
-If one provider is unavailable, OmniRoute can route the request to another available provider.
+The application sends one request to OmniRoute. OmniRoute handles provider routing and reliability logic behind the scenes.
 
-## How It Works
+---
 
-```mermaid
-flowchart LR
-    Client[Client Application] --> API[OmniRoute FastAPI Gateway]
+## Portfolio Demo
 
-    API --> RateLimit[Rate Limiter]
-    RateLimit --> Router[Provider Router]
+The project can be tested locally without an AWS account or paid AI API.
 
-    Router --> OpenAI[OpenAI]
-    Router --> Anthropic[Anthropic]
-    Router --> Mock[Mock Provider]
+### CI Pipeline
 
-    OpenAI --> Retry[Retry and Backoff]
-    Anthropic --> Retry
+GitHub Actions automatically validates Python, tests, Docker builds, and Terraform.
 
-    Retry --> Circuit[Circuit Breaker]
-    Circuit --> Router
+<p align="center">
+  <img src="docs/images/ci-passing.png" alt="GitHub Actions CI passing" width="900">
+</p>
+
+The current CI pipeline includes:
+
+```text
+Python
+  |
+  +--> Install dependencies
+  +--> Compile application
+  +--> Run pytest
+  +--> Build Docker image
+
+Terraform
+  |
+  +--> terraform fmt -check
+  +--> terraform init -backend=false
+  +--> terraform validate
 ```
 
-The local mock provider allows the complete system to be tested without an OpenAI key, Anthropic key, AWS account, or paid API usage.
+### Provider Health
+
+OmniRoute exposes provider health information through:
+
+```text
+GET /health/providers
+```
+
+<p align="center">
+  <img src="docs/images/provider-health.png" alt="OmniRoute provider health endpoint" width="100%">
+</p>
+
+The local configuration shows:
+
+```text
+Mock       -> available
+OpenAI     -> not configured
+Anthropic  -> not configured
+```
+
+### Automatic Failover
+
+A request can explicitly ask for OpenAI even when OpenAI is unavailable.
+
+OmniRoute detects that the provider cannot be used and falls back to the local mock provider.
+
+<p align="center">
+  <img src="docs/images/failover-demo.png" alt="OmniRoute provider failover demonstration" width="900">
+</p>
+
+Demonstrated flow:
+
+```text
+Requested provider: OpenAI
+        |
+        v
+OpenAI not configured
+        |
+        v
+OmniRoute failover
+        |
+        v
+Mock provider
+        |
+        v
+Successful response
+```
+
+Example result:
+
+```text
+Response: OmniRoute mock response: Portfolio failover demo
+```
+
+---
 
 ## Current Features
 
@@ -63,21 +139,22 @@ The local mock provider allows the complete system to be tested without an OpenA
 - `GET /health`
 - `GET /health/providers`
 - provider selection through `X-OmniRoute-Provider`
+- normalized chat completion responses
 
 ### Provider Routing
 
 - OpenAI-compatible provider adapter
 - Anthropic provider adapter
 - local mock provider
-- normalized chat completion responses
+- configurable default provider
 - automatic provider failover
 
 ### Reliability
 
-- configurable provider timeout
+- provider timeouts
 - automatic retries
 - exponential retry backoff
-- circuit breaker per provider
+- per-provider circuit breaker
 - provider health tracking
 - automatic failover
 
@@ -86,93 +163,67 @@ The local mock provider allows the complete system to be tested without an OpenA
 - in-memory rate limiting
 - request IDs
 - structured JSON logging
-- error handling
+- centralized error handling
 
 ### Engineering
 
-- automated pytest tests
+- automated pytest suite
 - Docker
 - Docker Compose
-- GitHub Actions CI
-- Python package configuration
+- GitHub Actions
+- Terraform validation in CI
+- MIT License
 
-### Infrastructure as Code
+---
 
-Terraform definitions currently include:
+## Reliability Flow
 
-- Amazon ECR
-- Amazon ECS
-- AWS Fargate
-- IAM roles
-- CloudWatch Logs
-- DynamoDB
-- VPC
-- public subnets
-- Internet Gateway
-- route tables
-- security groups
-- Application Load Balancer
-- target group
-- load balancer health checks
+```mermaid
+flowchart LR
+    Client[Client Application] --> API[OmniRoute API]
 
-The AWS infrastructure is defined but is not currently deployed.
+    API --> Limit[Rate Limiter]
+    Limit --> Router[Provider Router]
 
-## Lab Purpose
+    Router --> OpenAI[OpenAI-Compatible]
+    Router --> Anthropic[Anthropic]
+    Router --> Mock[Mock Provider]
 
-OmniRoute Cloud is also a hands-on engineering laboratory.
+    OpenAI --> Retry[Retry + Backoff]
+    Anthropic --> Retry
 
-The repository is intentionally designed so new backend, cloud, DevOps, reliability, networking, and security concepts can be implemented and tested incrementally.
+    Retry --> Breaker[Circuit Breaker]
+    Breaker --> Router
+```
 
-Current and future lab areas include:
+The system attempts to prevent a temporary provider problem from becoming an application-wide failure.
 
-- API gateway architecture
-- provider routing
-- failover
-- retries
-- exponential backoff
-- circuit breakers
-- Docker
-- CI/CD
-- Terraform
-- AWS ECS and Fargate
-- VPC networking
-- IAM
-- observability
-- secrets management
-- autoscaling
-- distributed rate limiting
-- security hardening
-
-The goal is to keep the project functional while continuously adding production-oriented engineering patterns.
+---
 
 ## Quick Start
 
-The default configuration uses the local mock provider.
+No OpenAI key, Anthropic key, or AWS account is required for the default local demo.
 
-No paid AI API is required.
-
-### Docker
-
-Clone the repository:
+### Clone
 
 ```bash
 git clone https://github.com/wandersonr7/OMNIROUTE-CLOUD.git
 cd OMNIROUTE-CLOUD
 ```
 
-Start the service:
+### Run with Docker
 
 ```bash
 docker compose up --build
 ```
 
-The API will be available at:
+The service will be available at:
 
 ```text
 http://localhost:8080
 ```
 
-Test the health endpoint:
+Test it:
 
 ```bash
 curl http://localhost:8080/health
@@ -188,7 +239,9 @@ Example response:
 }
 ```
 
-## Send a Test Request
+---
+
+## Send a Chat Request
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
@@ -196,11 +249,17 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   -d '{"model":"mock-1","messages":[{"role":"user","content":"Hello OmniRoute"}]}'
 ```
 
-The request is handled by the local mock provider.
+Example mock response:
 
-## Test Provider Failover
+```text
+OmniRoute mock response: Hello OmniRoute
+```
 
-You can explicitly request OpenAI:
+---
+
+## Test Failover
+
+Request OpenAI explicitly:
 
 ```bash
 curl -X POST http://localhost:8080/v1/chat/completions \
@@ -209,7 +268,7 @@ curl -X POST http://localhost:8080/v1/chat/completions \
   -d '{"model":"mock-1","messages":[{"role":"user","content":"Testing provider failover"}]}'
 ```
 
-If OpenAI is not configured, OmniRoute can fall back to an available provider.
+If OpenAI is not configured, OmniRoute can continue using another available provider.
 
 ```text
 Client
@@ -230,37 +289,7 @@ Mock Provider
 Response
 ```
 
-## Provider Health
-
-Check the state of configured providers:
-
-```bash
-curl http://localhost:8080/health/providers
-```
-
-Example:
-
-```json
-{
-  "providers": {
-    "mock": {
-      "status": "available",
-      "configured": true,
-      "circuit_open": false
-    },
-    "openai": {
-      "status": "not_configured",
-      "configured": false,
-      "circuit_open": false
-    },
-    "anthropic": {
-      "status": "not_configured",
-      "configured": false,
-      "circuit_open": false
-    }
-  }
-}
-```
+---
 
 ## Run with Python
 
@@ -282,11 +311,13 @@ Install the project:
 python -m pip install -e ".[dev]"
 ```
 
-Start OmniRoute:
+Start the API:
 
 ```bash
 python -m uvicorn app.main:app --reload --port 8080
 ```
+
+---
 
 ## Tests
 
@@ -296,44 +327,32 @@ Run:
 python -m pytest
 ```
 
-The automated test suite covers API behavior and reliability components.
+The automated suite currently covers API behavior, provider routing, failover, retry logic, and circuit breaker behavior.
 
-## Continuous Integration
+---
 
-GitHub Actions validates pushes and pull requests.
+## AWS Infrastructure as Code
 
-The Python CI job performs:
+The repository includes Terraform definitions for a future AWS deployment.
 
-```text
-Install dependencies
-       |
-       v
-Compile Python
-       |
-       v
-Run pytest
-       |
-       v
-Build Docker image
-```
+Current infrastructure definitions include:
 
-The Terraform CI job performs:
+- Amazon ECR
+- Amazon ECS
+- AWS Fargate
+- IAM roles
+- CloudWatch Logs
+- DynamoDB
+- VPC
+- public subnets
+- Internet Gateway
+- route tables
+- security groups
+- Application Load Balancer
+- target group
+- health checks
 
-```text
-terraform fmt -check
-       |
-       v
-terraform init -backend=false
-       |
-       v
-terraform validate
-```
-
-The CI pipeline does not deploy AWS infrastructure.
-
-## AWS Architecture
-
-A future AWS deployment is represented with Terraform.
+Architecture:
 
 ```mermaid
 flowchart TB
@@ -341,10 +360,10 @@ flowchart TB
 
     ALB --> ECS[ECS Fargate Service]
 
-    ECS --> Container[OmniRoute Container]
+    ECS --> App[OmniRoute Container]
 
-    Container --> OpenAI[OpenAI]
-    Container --> Anthropic[Anthropic]
+    App --> OpenAI[OpenAI-Compatible]
+    App --> Anthropic[Anthropic]
 
     ECS --> Logs[CloudWatch Logs]
     ECS --> DB[DynamoDB]
@@ -352,7 +371,11 @@ flowchart TB
     ECR[ECR] --> ECS
 ```
 
-Infrastructure creation is intentionally disabled by default where practical.
+The AWS environment is **not currently deployed**.
+
+Terraform is used to design and validate the architecture without creating cloud resources.
+
+Infrastructure creation is disabled by default where practical:
 
 ```text
 create_network = false
@@ -360,7 +383,22 @@ create_alb = false
 create_ecs_service = false
 ```
 
-No AWS resources are created by cloning, testing, or validating the repository.
+---
+
+## Terraform Validation
+
+Local validation:
+
+```bash
+terraform -chdir=terraform fmt -check
+terraform -chdir=terraform validate
+```
+
+GitHub Actions performs Terraform validation automatically.
+
+No `terraform apply` operation is executed by CI.
+
+---
 
 ## Project Structure
 
@@ -382,19 +420,30 @@ OMNIROUTE-CLOUD/
 +-- terraform/
 |
 +-- docs/
+|   +-- images/
+|       +-- architecture-preview.png
+|       +-- ci-passing.png
+|       +-- provider-health.png
+|       +-- failover-demo.png
 |
-+-- .github/workflows/
++-- .github/
+|   +-- workflows/
 |
 +-- Dockerfile
 +-- docker-compose.yml
 +-- pyproject.toml
 +-- SECURITY.md
++-- LICENSE
 +-- README.md
 ```
 
+---
+
 ## Configuration
 
-Examples of supported environment variables:
+OmniRoute is configured through environment variables.
+
+Examples:
 
 ```text
 OMNIROUTE_DEFAULT_PROVIDER
@@ -416,91 +465,134 @@ ANTHROPIC_BASE_URL
 ANTHROPIC_DEFAULT_MODEL
 ```
 
-See `.env.example` for local configuration.
+See:
+
+```text
+.env.example
+```
+
+for local configuration examples.
+
+---
 
 ## Security
 
 Secrets must never be committed to the repository.
 
-Local `.env` files are excluded from Git.
+The repository ignores local `.env` files and Terraform state files.
 
-Production credentials should eventually use a dedicated secrets-management solution such as AWS Secrets Manager.
+Production secrets should eventually be stored using a dedicated secrets-management service such as AWS Secrets Manager.
 
-See [SECURITY.md](SECURITY.md).
+Before making the repository public, the Git history was reviewed and rewritten to remove personal email addresses from commit metadata.
 
-## Deployment Status
+See:
 
-The application currently runs locally.
+[SECURITY.md](SECURITY.md)
 
-Terraform is used to define and validate a possible AWS architecture.
+---
 
-The AWS environment has not been deployed.
+## Cloud Engineering Lab
 
-This means the project can currently be tested without:
+OmniRoute Cloud is both a portfolio project and a hands-on engineering laboratory.
 
-- an AWS account
-- AWS charges
-- OpenAI credits
-- Anthropic credits
+The repository is used to experiment with production-oriented concepts such as:
+
+- API gateway architecture
+- provider routing
+- reliability engineering
+- retries
+- backoff
+- circuit breakers
+- failover
+- containerization
+- CI/CD
+- infrastructure as code
+- AWS networking
+- IAM
+- monitoring
+- secrets management
+- distributed systems
+
+The goal is to incrementally implement, test, document, and validate each concept.
+
+---
 
 ## Roadmap
 
-Planned lab and portfolio improvements include:
+Planned improvements include:
 
 - client API-key authentication
 - distributed rate limiting
 - request metrics
 - provider metrics
 - persistent request telemetry
-- intelligent provider selection
+- smarter provider selection
 - AWS Secrets Manager
 - HTTPS with ACM
-- DNS
+- DNS integration
 - ECS autoscaling
 - CloudWatch dashboards
 - CloudWatch alarms
 - deployment automation
 - distributed provider health state
 
+---
+
 ## Skills Demonstrated
 
-OmniRoute Cloud demonstrates practical work with:
+This project demonstrates practical work with:
 
 - Python
 - FastAPI
 - REST APIs
 - asynchronous HTTP
-- distributed-system reliability concepts
+- API gateway patterns
+- reliability engineering
 - retries
 - exponential backoff
 - circuit breakers
 - failover
-- API rate limiting
+- rate limiting
 - structured logging
 - automated testing
-- Docker
+- Git
+- GitHub
 - GitHub Actions
+- Docker
 - Terraform
-- AWS ECS
-- AWS Fargate
-- Amazon ECR
-- Application Load Balancers
+- AWS architecture
+- ECS
+- Fargate
+- ECR
 - VPC networking
+- Application Load Balancers
 - IAM
 - DynamoDB
 - CloudWatch
 
+---
+
 ## Documentation
 
-Additional technical documentation:
+Additional documentation:
 
 - [Architecture](docs/architecture.md)
-- [Security Policy](SECURITY.md)
 - [Terraform Infrastructure](terraform/README.md)
+- [Security Policy](SECURITY.md)
 - [Roadmap](docs/ROADMAP.md)
+
+---
 
 ## Project Status
 
-OmniRoute Cloud is an actively developed portfolio project and engineering lab.
+**Active portfolio project and cloud engineering lab.**
 
-The repository is intended to evolve as new cloud and backend concepts are implemented, tested, documented, and validated.
+The application runs locally today and the AWS architecture is defined through Terraform for future deployment.
+
+The project can be cloned, tested, and evaluated without requiring paid cloud or AI services.
+
+---
+
+## License
+
+MIT License.
